@@ -49,16 +49,25 @@ import my_util
 
 main_dir = '/home/b0rgh/collaborations_potential/dcesarini/'
 
+_bad_pred_threshold = 100
+
+_target_type = 'normalTe_normalTr'
+#_target_type = 'logTe_logTr'
+#_target_type = 'normalTe_logTr'
+
 '''
 Train ML model in order to predict MPI call duration
 '''
 def train_ML_MPI_durs(df_orig, target, verbose=True):
     df = df_orig.copy()
     df[target] *= 100000
-    #mask = df[target] < 1
-    #df.loc[mask, target] = 1
-    #target = np.log(df[target])
-    target = df[target]
+    if _target_type == 'logTe_logTr' or _target_type == 'normalTe_logTr':
+        mask = df[target] < 1
+        df.loc[mask, target] = 1
+        target = np.log(df[target])
+    elif _target_type == 'normalTe_normalTr':
+        target = df[target]
+        
     del df['time_app']
     del df['time_slack']
     del df['time_mpi']
@@ -71,15 +80,22 @@ def train_ML_MPI_durs(df_orig, target, verbose=True):
 
     regr.fit(train_data,train_target)
 
-    #predicted = np.exp(regr.predict(test_data))
-    #actual = np.exp(test_target.values)
-    predicted = regr.predict(test_data)
-    actual = test_target.values
+    if _target_type == 'normalTe_logTr':
+        predicted = np.exp(regr.predict(test_data))
+        actual = np.exp(test_target.values)
+    else:
+        predicted = regr.predict(test_data)
+        actual = test_target.values
 
     #for i in range(20):
-    #    print("{} - {}".format(actual[i], predicted[i]))
+    #    if actual[i] != 0:
+    #        errp = (abs(predicted[i]-actual[i]))* 100 / abs(actual[i])
+    #    else:
+    #        errp = 0
+    #    print("{} - {} ({})".format(actual[i], predicted[i], errp))
 
-    stats_res = my_util.evaluate_predictions(predicted, actual)
+    stats_res = my_util.evaluate_predictions(predicted, actual,
+            _bad_pred_threshold)
 
     stats_res['feat_importances'] = regr.feature_importances_
 
@@ -90,7 +106,15 @@ def train_ML_MPI_durs(df_orig, target, verbose=True):
         print(" - (Actual mean {0:.6f}, std {1:.3f})".format(np.mean(actual),
             np.std(actual)))
         print(" - MAPE: {0:.3f}".format(stats_res["MAPE"]))
+        print(" - MAPE no bad preds: {0:.3f}".format(stats_res["MAPE_2"]))
         print(" - SMAPE: {0:.3f}".format(stats_res["SMAPE"]))
+        print(" - SMAPE no bad preds: {0:.3f}".format(stats_res["SMAPE_2"]))
+        print(" - # bad preds (threshold = {0}): {1} (tot {2});{3:.2f}%".format(
+            _bad_pred_threshold, stats_res["nbad_preds"], len(predicted),
+            stats_res["nbad_preds"]/len(predicted)*100))
+        print(" - (Actual badly predicted mean {0:.6f}, std {1:.3f})".format(
+            np.mean(stats_res["badly_predicted"]), 
+            np.std(stats_res["badly_predicted"])))
         print(" - R-squared: {0:.3f}".format(stats_res["R2"]))
         print(" - MedAE: {0:.3f}".format(stats_res["MedAE"]))
         print(" - Explained Variance: {0:.3f}".format(stats_res["EV"]))
@@ -135,49 +159,40 @@ def predict_duration_single_application(fname, verbose=True):
     print("\nPredict time mpi")
     stat_res_app = train_ML_MPI_durs(df, 'time_mpi', True)
     print('==============================================================')
-    #stats_res = {}
-    #n_iter = 20
-    #for ni in range(n_iter):
-    #    print("Iteration {}".format(ni))
 
-    #    sr = train_ML_MPI_durs(df, False)
+'''
+Predict the MPI call duration for a single, specific application
+Requires a data set of different runs for the same application
+- using also information about the duration at the previous iteration
+'''
+def predict_duration_single_application_withPrev(fname, verbose=True):
+    data_dir = main_dir
+    filename = data_dir + fname
+    df_full = pd.read_csv(fname, sep=';', header=0)
+    size = 1000000
+    #df = df_full.sample(size)
+    df = df_full
+    df = df[(df['time_app'] >= 0.0005)]
+    if len(df) > size:
+        df = df.sample(size)
+    del df['eam_slack           ']
+    #del df['inst_ret_app']
+    #del df['inst_ret_slack']
+    #del df['inst_ret_mpi']
 
-    #    if len(stats_res) == 0:
-    #        stats_res["MAE"] = sr["MAE"]
-    #        stats_res["MSE"] = sr["MSE"]
-    #        stats_res["RMSE"] = sr["RMSE"]
-    #        stats_res["MAPE"] = sr["MAPE"]
-    #        stats_res["SMAPE"] = sr["SMAPE"]
-    #        stats_res["accuracy"] = sr["accuracy"]
-    #        stats_res["R2"] = sr["R2"]
-    #        stats_res["feat_importances"] = sr["feat_importances"]
-    #    else:
-    #        for k in stats_res.keys():
-    #            if k != 'feat_importances':
-    #                stats_res[k] += sr[k]
-    #            else:
-    #                for fii in range(len(stats_res[k])):
-    #                    stats_res[k][fii] += sr[k][fii]
-    #for k in stats_res.keys():
-    #    if k != 'feat_importances':
-    #        stats_res[k] /= n_iter
-    #    else:
-    #        for fii in range(len(stats_res[k])):
-    #            stats_res[k][fii] /= n_iter
+    print("Data frame loaded")
 
-    #if verbose:
-    #    print("MAE: {0:.3f}".format(stats_res["MAE"]))
-    #    print("MSE: {0:.3f}".format(stats_res["MSE"]))
-    #    print("RMSE: {0:.3f}".format(stats_res["RMSE"]))
-    #    print("MAPE: {0:.3f}".format(stats_res["MAPE"]))
-    #    print("SMAPE: {0:.3f}".format(stats_res["SMAPE"]))
-    #    print("R-squared: {0:.3f}".format(stats_res["R2"]))
-    #    print("Accuracy: {0:.2f}".format(stats_res["accuracy"]))
-    #    print("Features importance: [")
-    #    for i in range(len(stats_res['feat_importances'])):
-    #        print("\t{0} -> {1:.3f}".format(list(df)[i],
-    #            stats_res['feat_importances'][i]))
-    #    print("]")
+    print("\nPredict time app")
+    stat_res_app = train_ML_MPI_durs(df, 'time_app', True)
+
+    print('==============================================================')
+    print("\nPredict time slack")
+    stat_res_app = train_ML_MPI_durs(df, 'time_slack', True)
+    print('==============================================================')
+    print("\nPredict time mpi")
+    stat_res_app = train_ML_MPI_durs(df, 'time_mpi', True)
+    print('==============================================================')
+
 
 def main(argv):
     pred_type = int(argv[0])
@@ -188,7 +203,7 @@ def main(argv):
     if pred_type == 0:
         predict_duration_single_application(fname)
     elif pred_type == 1:
-        predict_duration_multi_application(fname)
+        predict_duration_single_application_withPrev(fname)
 
 if __name__ == '__main__':
     main(sys.argv[1:])

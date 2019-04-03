@@ -387,23 +387,42 @@ def encode_category(data_set_in, c):
 '''
 Evaluate prediction
 '''
-def evaluate_predictions(predicted, actual):
+def evaluate_predictions(predicted, actual, bad_pred_threshold):
     abs_errors = []
     p_abs_errors = []
     sp_abs_errors = []
     squared_errors = []
     underest_count = 0
     overest_count = 0
+    p_abs_errors_belowThreshold = []
+    sp_abs_errors_belowThreshold = []
+    nbad_preds = 0
+    p_abs_errors_aboveThreshold = []
+    actual_withErr_aboveThreshold = []
 
     for i in range(len(predicted)):
         abs_errors.append(abs(predicted[i] - actual[i]))
         squared_errors.append((predicted[i] - actual[i])*
             (predicted[i] - actual[i]))
         if actual[i] != 0:
-            p_abs_errors.append((abs(predicted[i]-actual[i]))* 
+            p_abs_err = ((abs(predicted[i]-actual[i]))* 
                     100 / abs(actual[i]))
-        sp_abs_errors.append((abs(predicted[i]-actual[i])) * 100 / 
+            p_abs_errors.append(p_abs_err)
+            if p_abs_err < bad_pred_threshold:
+                p_abs_errors_belowThreshold.append(p_abs_err)
+            else:
+                p_abs_errors_aboveThreshold.append(p_abs_err)
+                actual_withErr_aboveThreshold.append(actual[i])
+        else:
+            p_abs_err = 0
+
+        sp_abs_err = ((abs(predicted[i]-actual[i])) * 100 / 
             abs(predicted[i] + actual[i]))
+        sp_abs_errors.append(sp_abs_err)
+        if p_abs_err >= bad_pred_threshold:
+            nbad_preds += 1
+        if p_abs_err < bad_pred_threshold:
+            sp_abs_errors_belowThreshold.append(sp_abs_err)
         if predicted[i] - actual[i] > 0:
             overest_count += 1
         elif predicted[i] - actual[i] < 0:
@@ -411,7 +430,10 @@ def evaluate_predictions(predicted, actual):
 
     MAE = Decimal(np.mean(np.asarray(abs_errors)))
     MAPE = Decimal(np.mean(np.asarray(p_abs_errors)))
+    MAPE_2 = Decimal(np.mean(np.asarray(p_abs_errors_belowThreshold)))
+    MAPE_3 = Decimal(np.mean(np.asarray(p_abs_errors_aboveThreshold)))
     SMAPE = Decimal(np.nanmean(np.asarray(sp_abs_errors)))
+    SMAPE_2 = Decimal(np.nanmean(np.asarray(sp_abs_errors_belowThreshold)))
     MSE = Decimal(np.mean(np.asarray(squared_errors)))
     RMSE = Decimal(math.sqrt(MSE))
     R2 = r2_score(actual, predicted)
@@ -425,11 +447,14 @@ def evaluate_predictions(predicted, actual):
     stats_res["MSE"] = MSE
     stats_res["RMSE"] = RMSE
     stats_res["MAPE"] = MAPE
+    stats_res["MAPE_2"] = MAPE_2
     stats_res["SMAPE"] = SMAPE
+    stats_res["SMAPE_2"] = SMAPE_2
     stats_res["ABS_ERRORS"] = abs_errors
     stats_res["P_ABS_ERRORS"] = p_abs_errors
     stats_res["SP_ABS_ERRORS"] = sp_abs_errors
     stats_res["SQUARED_ERRORS"] = squared_errors
+    stats_res["nbad_preds"] = nbad_preds
     stats_res["R2"] = R2
     stats_res["MedAE"] = MedAE
     stats_res["EV"] = EV
@@ -442,6 +467,7 @@ def evaluate_predictions(predicted, actual):
     stats_res["overest_count"] = overest_count
     stats_res["underest_ratio"] = underest_count / len(predicted)
     stats_res["overest_ratio"] = overest_count / len(predicted)
+    stats_res["badly_predicted"] = actual_withErr_aboveThreshold
 
     return stats_res
 
