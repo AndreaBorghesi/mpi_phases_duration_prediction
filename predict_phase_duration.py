@@ -46,14 +46,18 @@ from sklearn.ensemble import ExtraTreesRegressor, GradientBoostingRegressor
 from sklearn.svm import SVR
 import time
 import my_util
+import csv
 
 main_dir = '/home/b0rgh/collaborations_potential/dcesarini/'
+stats_res_dir = main_dir + 'stat_res_dir/'
 
-_bad_pred_threshold = 100
+_bad_pred_threshold = 1000
 
-_target_type = 'normalTe_normalTr'
+#_target_type = 'normalTe_normalTr'
 #_target_type = 'logTe_logTr'
-#_target_type = 'normalTe_logTr'
+_target_type = 'normalTe_logTr'
+
+stats_res_dir += _target_type + '/'
 
 '''
 Train ML model in order to predict MPI call duration
@@ -151,47 +155,113 @@ def predict_duration_single_application(fname, verbose=True):
 
     print("\nPredict time app")
     stat_res_app = train_ML_MPI_durs(df, 'time_app', True)
+    stat_res_app_file = stats_res_dir + fname.split('/')[1].split('.')[0
+            ] + '_app.pickle'
+    with open(stat_res_app_file, 'wb') as handle:
+        pickle.dump(stat_res_app, handle, protocol=pickle.HIGHEST_PROTOCOL)
+    print('==============================================================')
 
-    print('==============================================================')
     print("\nPredict time slack")
-    stat_res_app = train_ML_MPI_durs(df, 'time_slack', True)
+    stat_res_slack = train_ML_MPI_durs(df, 'time_slack', True)
+    stat_res_slack_file = stats_res_dir + fname.split('/')[1].split('.')[0
+            ] + '_slack.pickle'
+    with open(stat_res_slack_file, 'wb') as handle:
+        pickle.dump(stat_res_slack, handle, protocol=pickle.HIGHEST_PROTOCOL)
     print('==============================================================')
+
     print("\nPredict time mpi")
-    stat_res_app = train_ML_MPI_durs(df, 'time_mpi', True)
+    stat_res_mpi = train_ML_MPI_durs(df, 'time_mpi', True)
+    stat_res_mpi_file = stats_res_dir + fname.split('/')[1].split('.')[0
+            ] + '_mpi.pickle'
+    with open(stat_res_mpi_file, 'wb') as handle:
+        pickle.dump(stat_res_mpi, handle, protocol=pickle.HIGHEST_PROTOCOL)
     print('==============================================================')
 
 '''
-Predict the MPI call duration for a single, specific application
-Requires a data set of different runs for the same application
-- using also information about the duration at the previous iteration
+Compute values relative to the previous MPI phase of the same rank
+- iterates over the input csv file and creates a new csv file
 '''
-def predict_duration_single_application_withPrev(fname, verbose=True):
-    data_dir = main_dir
-    filename = data_dir + fname
-    df_full = pd.read_csv(fname, sep=';', header=0)
-    size = 1000000
-    #df = df_full.sample(size)
-    df = df_full
-    df = df[(df['time_app'] >= 0.0005)]
-    if len(df) > size:
-        df = df.sample(size)
-    del df['eam_slack           ']
-    #del df['inst_ret_app']
-    #del df['inst_ret_slack']
-    #del df['inst_ret_mpi']
+def create_new_csv_with_prev(fname):
+    wrtxt = 'rank_id;mpi_type;data_in;data_out;num_procs;locality;task_id;'
+    wrtxt += 'eam_slack           ;time_app;time_slack;time_mpi;inst_ret_app;'
+    wrtxt += 'inst_ret_slack;inst_ret_mpi;prev_time_app;prev_time_slack;'
+    wrtxt += 'prev_time_mpi\n'
 
-    print("Data frame loaded")
+    prev_rank_id = -1
+    prev_task_id = -1
+    prev_time_app = -1
+    prev_time_slack = -1
+    prev_time_mpi = -1
 
-    print("\nPredict time app")
-    stat_res_app = train_ML_MPI_durs(df, 'time_app', True)
+    outfile = 'benchmark_withPrev/' + fname.split('/')[1]
+    with open(outfile, 'w+') as of:
+        of.write(wrtxt)
+    wrtxt = ''
 
-    print('==============================================================')
-    print("\nPredict time slack")
-    stat_res_app = train_ML_MPI_durs(df, 'time_slack', True)
-    print('==============================================================')
-    print("\nPredict time mpi")
-    stat_res_app = train_ML_MPI_durs(df, 'time_mpi', True)
-    print('==============================================================')
+    with open(fname, 'r') as csvfile:
+        lines = csvfile.readlines()
+        for l in lines[1:]:
+            ll = l.split(';')
+            rank_id = ll[0]
+            task_id = ll[6]
+            time_app = ll[8]
+            time_slack = ll[9]
+            time_mpi = ll[10]
+
+            wrtxt += l.rstrip()
+
+            if rank_id != prev_rank_id:
+                prev_rank_id = rank_id
+                prev_task_id = task_id
+                prev_time_app = -1
+                prev_time_slack = -1
+                prev_time_mpi = -1
+            wrtxt += ';{};{};{}'.format(prev_time_app, prev_time_slack,
+                    prev_time_mpi)
+            prev_rank_id = rank_id
+            prev_task_id = task_id
+            prev_time_app = time_app
+            prev_time_slack = time_slack
+            prev_time_mpi = time_mpi
+
+            wrtxt += '\n'
+
+        with open(outfile, 'a') as of:
+            of.write(wrtxt)
+
+#### NOT USED ANYMORE -- I've directly changed the csv files
+#'''
+#Predict the MPI call duration for a single, specific application
+#Requires a data set of different runs for the same application
+#- using also information about the duration at the previous iteration
+#'''
+#def predict_duration_single_application_withPrev(fname, verbose=True):
+#    data_dir = main_dir
+#    filename = data_dir + fname
+#    df_full = pd.read_csv(fname, sep=';', header=0)
+#    prev_df_full = compute_prev(df_full)
+#    size = 1000000
+#    df = prev_df_full
+#    df = df[(df['time_app'] >= 0.0005)]
+#    if len(df) > size:
+#        df = df.sample(size)
+#    del df['eam_slack           ']
+#    del df['inst_ret_app']
+#    del df['inst_ret_slack']
+#    del df['inst_ret_mpi']
+#
+#    print("Data frame loaded")
+#
+#    print("\nPredict time app")
+#    stat_res_app = train_ML_MPI_durs(df, 'time_app', True)
+#
+#    print('==============================================================')
+#    print("\nPredict time slack")
+#    stat_res_app = train_ML_MPI_durs(df, 'time_slack', True)
+#    print('==============================================================')
+#    print("\nPredict time mpi")
+#    stat_res_app = train_ML_MPI_durs(df, 'time_mpi', True)
+#    print('==============================================================')
 
 
 def main(argv):
@@ -203,7 +273,7 @@ def main(argv):
     if pred_type == 0:
         predict_duration_single_application(fname)
     elif pred_type == 1:
-        predict_duration_single_application_withPrev(fname)
+        create_new_csv_with_prev(fname)
 
 if __name__ == '__main__':
     main(sys.argv[1:])
